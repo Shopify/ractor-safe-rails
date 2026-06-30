@@ -1,0 +1,4 @@
+#!/usr/bin/env ruby
+# Ractor safety test runner. Uses the current Ruby, like the other bin/* scripts.
+
+load File.expand_path("../script/ractor_test.rb", __dir__)

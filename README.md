@@ -1,24 +1,5 @@
-# README
+# Ractor-safe Rails
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
+This repo contains a small Rails application for testing Ractor support in Rails. The app will grow as more functionality becomes Ractor-safe.
 
-Things you may want to cover:
-
-* Ruby version
-
-* System dependencies
-
-* Configuration
-
-* Database creation
-
-* Database initialization
-
-* How to run the test suite
-
-* Services (job queues, cache servers, search engines, etc.)
-
-* Deployment instructions
-
-* ...
+`bin/ractor-test` boots the application, makes it Ractor-shareable and runs each request in a non-main Ractor.
