@@ -3,6 +3,11 @@ require "active_support/core_ext/integer/time"
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
+  # These are needed for ractorization
+  ActiveSupport::Ractors.unshareable_proc_action = :raise
+  config.cache_store = :null_store
+  config.logger = ActiveSupport::TaggedLogging.logger(nil)
+
   # Code is not reloaded between requests.
   config.enable_reloading = false
 
@@ -35,7 +40,6 @@ Rails.application.configure do
 
   # Log to STDOUT with the current request id as a default log tag.
   config.log_tags = [ :request_id ]
-  config.logger   = ActiveSupport::TaggedLogging.logger(STDOUT)
 
   # Change to "debug" to log everything (including potentially personally-identifiable information!).
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
@@ -45,9 +49,6 @@ Rails.application.configure do
 
   # Don't log any deprecations.
   config.active_support.report_deprecations = false
-
-  # Replace the default in-process memory cache store with a durable alternative.
-  config.cache_store = :solid_cache_store
 
   # Replace the default in-process and non-durable queuing backend for Active Job.
   config.active_job.queue_adapter = :solid_queue
