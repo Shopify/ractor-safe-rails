@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title><%= h(@title) %></title>
+  <link rel="stylesheet" href="<%= h(@asset_prefix) %>/assets/site.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <a class="brand" href="<%= h(@asset_prefix) %>/">Ractor isolation sweep</a>
+      <div class="tagline">Weekly request isolation checks for this Rails app</div>
+    </div>
+    <nav>
+      <a href="<%= h(@asset_prefix) %>/">Runs</a>
+      <a href="https://github.com/Shopify/ractor-safe-rails">Repository</a>
+    </nav>
+  </header>
+
+  <main>
+    <%= @content %>
+  </main>
+
+  <footer>
+    Generated as static GitHub Pages content from <code>results.json</code>; raw details are linked as <code>dump.txt</code>.
+  </footer>
+</body>
+</html>

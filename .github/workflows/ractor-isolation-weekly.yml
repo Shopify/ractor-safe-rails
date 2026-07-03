@@ -1,0 +1,203 @@
+name: Weekly Ractor isolation sweep
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly at midnight UTC on Monday
+    - cron: "0 0 * * 1"
+
+concurrency:
+  group: ractor-isolation-weekly
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Requests under Ractor.check_isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      BUNDLE_VERSION: system
+      SECRET_KEY_BASE_DUMMY: "1"
+      RAILS_ENV: production
+      RAILS_LOG_LEVEL: warn
+      RACTOR_ISOLATION_CAPTURE_BACKTRACE: "1"
+      RUBY_SOURCE_REPOSITORY: Shopify/ruby
+      RUBY_SOURCE_REF: andrew-fake-ractor
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf bison build-essential libssl-dev libyaml-dev \
+            libreadline-dev zlib1g-dev libncurses5-dev libffi-dev \
+            libgdbm-dev libdb-dev uuid-dev sqlite3 libsqlite3-dev \
+            pkg-config libvips-dev
+
+      - name: Try Ruby from .ruby-version
+        id: setup-ruby
+        uses: ruby/setup-ruby@v1
+        continue-on-error: true
+        with:
+          bundler-cache: true
+
+      - name: Verify setup-ruby supports Ractor.check_isolation
+        id: verify-setup-ruby
+        continue-on-error: true
+        run: |
+          ruby -v
+          ruby -e 'abort "missing Ractor.check_isolation" unless defined?(Ractor) && Ractor.respond_to?(:check_isolation)'
+
+      - name: Check out Ruby source for fallback build
+        if: steps.setup-ruby.outcome != 'success' || steps.verify-setup-ruby.outcome != 'success'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.RUBY_SOURCE_REPOSITORY }}
+          ref: ${{ env.RUBY_SOURCE_REF }}
+          path: ruby-src
+
+      - name: Capture fallback Ruby source SHA
+        id: ruby-source-sha
+        if: steps.setup-ruby.outcome != 'success' || steps.verify-setup-ruby.outcome != 'success'
+        run: echo "ruby_sha=$(git -C ruby-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore built Ruby from cache
+        id: ruby-cache
+        if: steps.setup-ruby.outcome != 'success' || steps.verify-setup-ruby.outcome != 'success'
+        uses: actions/cache/restore@v4
+        with:
+          path: ruby-install
+          key: ruby-${{ env.RUBY_SOURCE_REF }}-${{ runner.os }}-${{ steps.ruby-source-sha.outputs.ruby_sha }}
+
+      - name: Build fallback Ruby
+        if: (steps.setup-ruby.outcome != 'success' || steps.verify-setup-ruby.outcome != 'success') && steps.ruby-cache.outputs.cache-hit != 'true'
+        run: |
+          cd ruby-src
+          ./autogen.sh
+          mkdir -p build
+          cd build
+          ../configure --prefix="$GITHUB_WORKSPACE/ruby-install" --disable-install-doc
+          make -j"$(nproc)"
+          make install
+          "$GITHUB_WORKSPACE/ruby-install/bin/ruby" -v
+
+      - name: Save built Ruby to cache
+        if: (steps.setup-ruby.outcome != 'success' || steps.verify-setup-ruby.outcome != 'success') && steps.ruby-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ruby-install
+          key: ${{ steps.ruby-cache.outputs.cache-primary-key }}
+
+      - name: Put fallback Ruby on PATH
+        if: steps.setup-ruby.outcome != 'success' || steps.verify-setup-ruby.outcome != 'success'
+        run: |
+          echo "$GITHUB_WORKSPACE/ruby-install/bin" >> "$GITHUB_PATH"
+          "$GITHUB_WORKSPACE/ruby-install/bin/ruby" -v
+
+      - name: Verify active Ruby supports Ractor.check_isolation
+        run: |
+          ruby -v
+          ruby -e 'abort "missing Ractor.check_isolation" unless defined?(Ractor) && Ractor.respond_to?(:check_isolation)'
+
+      - name: Install bundled gems
+        run: |
+          bundle --version
+          bundle config set --local path vendor/bundle
+          bundle install --jobs=4 --retry=3
+
+      - name: Prepare production database and assets
+        run: |
+          bin/rails db:prepare
+          bin/rails assets:precompile
+
+      - name: Run reusable isolation check CLI
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/ractor-isolation-output"
+          set +e
+          bin/check-isolation > "$GITHUB_WORKSPACE/ractor-isolation-output/results.json"
+          check_status=$?
+          set -e
+          if [ -s "$GITHUB_WORKSPACE/ractor-isolation-output/results.json" ]; then
+            ruby -rjson -rpp -e 'File.open(ARGV[1], "w") { |io| PP.pp(JSON.parse(File.read(ARGV[0])), io) }' \
+              "$GITHUB_WORKSPACE/ractor-isolation-output/results.json" \
+              "$GITHUB_WORKSPACE/ractor-isolation-output/dump.txt"
+            ruby -rjson -e 'r=JSON.parse(File.read(ARGV[0])); puts "requests=#{r["total_requests"]} passed=#{r["passed_requests"]} failed=#{r["failed_requests"]} warnings=#{r["total_warnings"]} unique=#{r["unique_warning_groups"]}"' \
+              "$GITHUB_WORKSPACE/ractor-isolation-output/results.json"
+          else
+            echo "results.json was not written"
+          fi
+          echo "$check_status" > "$GITHUB_WORKSPACE/ractor-isolation-output/status.txt"
+          exit "$check_status"
+
+      - name: Upload check outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ractor-isolation-output
+          path: ${{ github.workspace }}/ractor-isolation-output/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub Pages report
+    needs: sweep
+    if: ${{ always() && needs.sweep.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download check outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: ractor-isolation-output
+          path: ractor-isolation-output
+
+      - name: Validate artifact files
+        run: |
+          test -f ractor-isolation-output/results.json
+          test -f ractor-isolation-output/dump.txt
+
+      - name: Set up Ruby for rendering
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Render ERB site
+        run: |
+          ruby script/render_isolation_site.rb \
+            "$GITHUB_WORKSPACE/docs/ractor-isolation-sweep" \
+            "${{ github.run_number }}" \
+            "${{ github.run_id }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "$GITHUB_WORKSPACE/ractor-isolation-output/results.json" \
+            "$GITHUB_WORKSPACE/ractor-isolation-output/dump.txt"
+
+      - name: Commit and push generated pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "Nothing changed — skipping commit."
+          else
+            git commit -m "Publish weekly Ractor isolation sweep #${{ github.run_number }} [skip ci]"
+            git push
+          fi
+
+      - name: Re-fail if sweep failed after publishing
+        run: |
+          if [ -f ractor-isolation-output/status.txt ] && [ "$(cat ractor-isolation-output/status.txt)" != "0" ]; then
+            echo "Sweep failed; report was published with diagnostics."
+            exit 1
+          fi

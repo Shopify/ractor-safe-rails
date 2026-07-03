@@ -1,36 +1,11 @@
 # frozen_string_literal: true
 
-ENV["RAILS_ENV"] ||= "production"
-ENV["SECRET_KEY_BASE_DUMMY"] ||= "1"
+require_relative "ractor_test_support"
 
-require "erb"
-require "stringio"
-require "uri"
-require "yaml"
-
-require_relative "../config/environment"
-
-ActionController::Base.allow_forgery_protection = false
-
-unless ActiveRecord::Base.connection.data_source_exists?("posts")
-  puts "Loading database schema..."
-  ActiveRecord::Schema.verbose = false
-  load Rails.root.join("db/schema.rb")
-end
-
-puts "Resetting database..."
-Post.delete_all
-seed_post = Post.create!(body: "Seed post body from Ractor test")
-delete_post = Post.create!(body: "Delete me from Ractor test")
-puts "Database seeded."
-
-seed_post_id = seed_post.id
-delete_post_id = delete_post.id
-REQUESTS = YAML.safe_load(
-  ERB.new(File.read(File.expand_path("requests.yml.erb", __dir__))).result(binding),
-  permitted_classes: [Symbol],
-  aliases: true,
-).freeze
+RactorTestSupport.boot_app!
+RactorTestSupport.prepare_database!
+context = RactorTestSupport.seed_request_data!
+REQUESTS = RactorTestSupport.load_request_specs(context)
 
 PASS = []
 FAIL = []
@@ -48,31 +23,6 @@ def fail(label, error)
   FAIL << { label: label, message: message }
 end
 
-def build_env(spec)
-  body = spec["params"] ? URI.encode_www_form(spec["params"]) : ""
-
-  {
-    "REQUEST_METHOD" => spec["method"],
-    "SCRIPT_NAME" => "",
-    "PATH_INFO" => spec["path"],
-    "QUERY_STRING" => spec["query"] || "",
-    "SERVER_NAME" => "localhost",
-    "SERVER_PORT" => "3000",
-    "SERVER_PROTOCOL" => "HTTP/1.1",
-    "HTTP_HOST" => "localhost:3000",
-    "HTTP_ACCEPT" => "text/html",
-    "HTTP_USER_AGENT" => "RactorTest",
-    "CONTENT_TYPE" => spec["params"] ? "application/x-www-form-urlencoded" : nil,
-    "CONTENT_LENGTH" => body.bytesize.to_s,
-    "rack.version" => [1, 6],
-    "rack.multithread" => true,
-    "rack.multiprocess" => false,
-    "rack.run_once" => false,
-    "rack.url_scheme" => "http",
-    "rack.body" => body,
-  }.merge(spec["headers"] || {}).compact
-end
-
 def test_application_shareability
   label = "application is shareable"
   Rails.application.ractorize!
@@ -87,26 +37,21 @@ rescue => error
 end
 
 def test_request(spec)
-  method = spec["method"]
-  path = spec["path"]
-  query = spec["query"]
-  label = "#{method} #{path}"
-  label += " (#{query})" if query && !query.empty?
+  label = RactorTestSupport.request_label(spec)
+  env = RactorTestSupport.build_env(spec)
 
-  env = build_env(spec)
   result = Ractor.new(Rails.application, env) do |app, request_env|
-    request_env["rack.input"] = StringIO.new(request_env.delete("rack.body") || "")
-    request_env["rack.errors"] = StringIO.new
-    request_env["action_dispatch.show_exceptions"] = :none
-
-    status, headers, body = app.call(request_env)
-    response_body = +""
-    body.each { |part| response_body << part }
-    body.close if body.respond_to?(:close)
-
-    { status: status, body: response_body, location: headers["location"] || headers["Location"] }
-  rescue => error
-    { error: "#{error.class}: #{error.message}", trace: error.backtrace&.first(5)&.join("\n") }
+    begin
+      response = RactorTestSupport.perform_request(app, request_env)
+      {
+        status: response[:status],
+        body: response[:body],
+        body_length: response[:body_length],
+        location: response[:location],
+      }
+    rescue => error
+      { error: "#{error.class}: #{error.message}", trace: error.backtrace&.first(5)&.join("\n") }
+    end
   end.value
 
   if result[:error]
@@ -114,19 +59,9 @@ def test_request(spec)
     return
   end
 
-  expected_statuses = Array(spec["expect"])
-  unless expected_statuses.include?(result[:status])
-    fail(label, RuntimeError.new("Expected #{expected_statuses.join('/')}, got #{result[:status]}"))
-    return
-  end
+  RactorTestSupport.validate_response!(spec, result)
 
-  missing = Array(spec["body_includes"]).compact.reject { |text| result[:body].include?(text) }
-  unless missing.empty?
-    fail(label, RuntimeError.new("Response body missing #{missing.inspect}; got #{result[:body].inspect[0..300]}"))
-    return
-  end
-
-  detail = "#{result[:status]} (#{result[:body].bytesize} bytes)"
+  detail = "#{result[:status]} (#{result[:body_length]} bytes)"
   detail += " -> #{result[:location]}" if result[:location]
   pass("#{label} -> #{detail}")
 rescue => error

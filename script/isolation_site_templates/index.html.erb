@@ -1,0 +1,58 @@
+<h1>Ractor isolation sweeps</h1>
+<p class="sub">Historical weekly runs, newest first. Each run links to a static overview and the GitHub Actions execution.</p>
+
+<% if @runs.empty? %>
+  <div class="empty">No sweep runs have been published yet.</div>
+<% else %>
+  <table>
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Date</th>
+        <th>App SHA</th>
+        <th>Ruby</th>
+        <th>Rails</th>
+        <th>Rack</th>
+        <th class="num">Requests</th>
+        <th class="num">Passed</th>
+        <th class="num">Failed</th>
+        <th class="num">Warnings</th>
+        <th class="num">Unique</th>
+        <th>Links</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @runs.each do |run| %>
+        <tr>
+          <td><a href="<%= h(run["run_path"]) %>">#<%= h(run["run_number"]) %></a></td>
+          <td><%= h(run["generated_at"]) %></td>
+          <td><code><%= h(short_sha(run["app_sha"])) %></code></td>
+          <td><%= h(run["ruby_description"]) %></td>
+          <td>
+            <%= h(run["rails_version"]) %>
+            <% if run["rails_source"] && !run["rails_source"].empty? %>
+              <div class="muted"><%= h(run["rails_source"]) %></div>
+            <% end %>
+          </td>
+          <td>
+            <%= h(run["rack_version"]) %>
+            <% if run["rack_source"] && !run["rack_source"].empty? %>
+              <div class="muted"><%= h(run["rack_source"]) %></div>
+            <% end %>
+          </td>
+          <td class="num"><%= with_commas(run["total_requests"]) %></td>
+          <td class="num status-ok"><%= with_commas(run["passed_requests"]) %></td>
+          <td class="num <%= run["failed_requests"].to_i.positive? ? "status-error" : "" %>"><%= with_commas(run["failed_requests"]) %></td>
+          <td class="num"><%= with_commas(run["total_warnings"]) %></td>
+          <td class="num"><%= with_commas(run["unique_warning_groups"]) %></td>
+          <td>
+            <a href="<%= h(run["run_path"]) %>">overview</a>
+            <% if run["run_url"] && !run["run_url"].empty? %>
+              · <a href="<%= h(run["run_url"]) %>">actions</a>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+<% end %>

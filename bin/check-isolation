@@ -1,0 +1,4 @@
+#!/usr/bin/env ruby
+# Ractor isolation check runner. Uses the current Ruby, like the other bin/* scripts.
+
+load File.expand_path("../script/check_isolation.rb", __dir__)

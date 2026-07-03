@@ -1,0 +1,134 @@
+<p class="breadcrumb"><a href="../../">All runs</a></p>
+
+<h1>Ractor isolation sweep #<%= h(@run["run_number"]) %></h1>
+<p class="sub">Generated <%= h(@result["generated_at"]) %>. <a href="dump.txt">Download raw combined dump</a>.</p>
+
+<section class="summary">
+  <div class="card"><div class="label">Requests</div><div class="value"><%= with_commas(@result["total_requests"]) %></div></div>
+  <div class="card"><div class="label">Passed</div><div class="value status-ok"><%= with_commas(@result["passed_requests"]) %></div></div>
+  <div class="card"><div class="label">Failed</div><div class="value <%= @result["failed_requests"].to_i.positive? ? "status-error" : "status-ok" %>"><%= with_commas(@result["failed_requests"]) %></div></div>
+  <div class="card"><div class="label">Warnings</div><div class="value"><%= with_commas(@result["total_warnings"]) %></div></div>
+  <div class="card"><div class="label">Unique groups</div><div class="value"><%= with_commas(@result["unique_warning_groups"]) %></div></div>
+</section>
+
+<section class="meta">
+  <h2>Metadata</h2>
+  <dl>
+    <dt>App SHA</dt><dd><code><%= h(@result["app_sha"] || "unknown") %></code></dd>
+    <dt>Ruby</dt><dd><%= h(@result["ruby_description"]) %></dd>
+    <dt>Rails</dt><dd><%= h(@result["rails_version"]) %><% if @result["rails_source"] %><div class="muted"><%= h(@result["rails_source"]) %></div><% end %></dd>
+    <dt>Rack</dt><dd><%= h(@result["rack_version"]) %><% if @result["rack_source"] %><div class="muted"><%= h(@result["rack_source"]) %></div><% end %></dd>
+    <dt>Rails env</dt><dd><%= h(@result["rails_env"]) %></dd>
+    <dt>Ractorized</dt><dd><%= h(@result["ractorized"]) %></dd>
+    <dt>Application shareable</dt><dd><%= h(@result["application_shareable"]) %></dd>
+    <dt>Actions run</dt><dd><% if @run["run_url"] && !@run["run_url"].empty? %><a href="<%= h(@run["run_url"]) %>"><%= h(@run["run_id"]) %></a><% else %><span class="muted">not available</span><% end %></dd>
+  </dl>
+</section>
+
+<% if @result["ractorize_error"] %>
+  <section class="error-panel">
+    <h2>Ractorization error</h2>
+    <p><strong><%= h(@result.dig("ractorize_error", "class")) %>:</strong> <%= h(@result.dig("ractorize_error", "message")) %></p>
+    <% if Array(@result.dig("ractorize_error", "backtrace")).any? %>
+      <details open><summary>Backtrace</summary><pre><%= h(Array(@result.dig("ractorize_error", "backtrace")).join("\n")) %></pre></details>
+    <% end %>
+  </section>
+<% end %>
+
+<section>
+  <h2>Requests</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Method</th>
+        <th>Path/query</th>
+        <th>Status</th>
+        <th>Result</th>
+        <th class="num">Warnings</th>
+        <th class="num">Unique</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @requests.each do |request| %>
+        <tr>
+          <td><span class="pill"><%= h(request["method"]) %></span></td>
+          <td><code><%= h(request["requested_path"] || request["path"]) %></code><div class="muted"><%= h(request["slug"]) %></div></td>
+          <td><%= request["status"] ? "HTTP #{h(request["status"])}" : "not run" %></td>
+          <td class="<%= request["passed"] ? "status-ok" : "status-error" %>"><%= request["passed"] ? "PASS" : "FAIL" %></td>
+          <td class="num"><%= with_commas(request["total_warnings"]) %></td>
+          <td class="num"><%= with_commas(request["unique_warning_groups"]) %></td>
+          <td>
+            <% if request["error"] %>
+              <details>
+                <summary><%= h(request.dig("error", "class")) %>: <%= h(request.dig("error", "message")) %></summary>
+                <pre><%= h(Array(request.dig("error", "backtrace")).first(40).join("\n")) %></pre>
+              </details>
+            <% end %>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Warning areas</h2>
+  <% if @areas.empty? %>
+    <div class="empty">No isolation warnings captured.</div>
+  <% else %>
+    <table class="compact">
+      <thead><tr><th>Area</th><th class="num">Unique groups</th><th class="num">Warnings</th></tr></thead>
+      <tbody>
+        <% @areas.each do |area| %>
+          <tr><td><span class="pill"><%= h(area["area"]) %></span></td><td class="num"><%= with_commas(area["unique"]) %></td><td class="num"><%= with_commas(area["count"]) %></td></tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</section>
+
+<section>
+  <h2>Aggregated warning groups</h2>
+  <% if @warning_groups.empty? %>
+    <div class="empty">No isolation warnings captured.</div>
+  <% else %>
+    <table>
+      <thead>
+        <tr>
+          <th class="num">Count</th>
+          <th>Warning gist</th>
+          <th>Requests</th>
+          <th>Area/source</th>
+          <th>Backtrace</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @warning_groups.each do |group| %>
+          <tr>
+            <td class="num"><%= with_commas(group["count"]) %></td>
+            <td><%= h(group["title"]) %></td>
+            <td>
+              <%= with_commas(Array(group["requests"]).size) %> request(s)
+              <div class="muted">first: <code><%= h(group["first_request_slug"]) %></code></div>
+            </td>
+            <td>
+              <span class="pill"><%= h(group["area"]) %></span>
+              <% if group["display_file"] && !group["display_file"].empty? %>
+                <div><code><%= h(group["display_file"]) %><% if group["first_line"] %>:<%= h(group["first_line"]) %><% end %></code></div>
+              <% end %>
+            </td>
+            <td>
+              <% if Array(group["backtrace"]).any? %>
+                <details>
+                  <summary><%= with_commas(Array(group["backtrace"]).size) %> frame(s)</summary>
+                  <pre><%= h(Array(group["backtrace"]).join("\n")) %></pre>
+                </details>
+              <% end %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  <% end %>
+</section>
