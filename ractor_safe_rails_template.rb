@@ -20,12 +20,13 @@ raise SKIP_SOLID_ERROR unless options[:skip_solid]
 # ---------------------------------------------------------------------------
 
 RACTOR_GEM_SOURCES = {
-  "rails"     => { github: "Shopify/rails", branch: "ar_ractorize_4" },
-  "rack"      => { github: "rack/rack" },
-  "propshaft" => { github: "rails/propshaft" },
-  "i18n"      => { github: "Shopify/i18n", branch: "ractor_support" },
-  "useragent" => { github: "Shopify/useragent", branch: "ec-frozen-strings" },
-  "openssl"   => { github: "ruby/openssl" },
+  "rails"           => { github: "Shopify/rails", branch: "ar_ractorize_4" },
+  "rack"            => { github: "rack/rack" },
+  "propshaft"       => { github: "rails/propshaft" },
+  "i18n"            => { github: "Shopify/i18n", branch: "ractor_support" },
+  "useragent"       => { github: "Shopify/useragent", branch: "ec-frozen-strings" },
+  "openssl"         => { github: "ruby/openssl" },
+  "importmap-rails" => { github: "Shopify/importmap-rails", branch: "hm-ysktlmxtkzxnzmot" },
 }
 
 RACTOR_GEM_SOURCES.each do |name, opts|
