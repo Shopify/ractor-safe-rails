@@ -20,7 +20,7 @@ raise SKIP_SOLID_ERROR unless options[:skip_solid]
 # ---------------------------------------------------------------------------
 
 RACTOR_GEM_SOURCES = {
-  "rails"           => { github: "Shopify/rails", branch: "ar_ractorize_4" },
+  "rails"           => { github: "rails/rails" },
   "rack"            => { github: "rack/rack" },
   "propshaft"       => { github: "rails/propshaft" },
   "i18n"            => { github: "Shopify/i18n", branch: "ractor_support" },
