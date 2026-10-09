@@ -26,7 +26,7 @@ RACTOR_GEM_SOURCES = {
   "i18n"            => { github: "Shopify/i18n", branch: "ractor_support" },
   "useragent"       => { github: "Shopify/useragent", branch: "ec-frozen-strings" },
   "openssl"         => { github: "ruby/openssl" },
-  "importmap-rails" => { github: "Shopify/importmap-rails", branch: "hm-ysktlmxtkzxnzmot" },
+  "importmap-rails" => { github: "rails/importmap-rails", branch: "main" },
 }
 
 RACTOR_GEM_SOURCES.each do |name, opts|
