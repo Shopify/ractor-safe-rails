@@ -8,24 +8,29 @@ require "stringio"
 require "uri"
 require "yaml"
 
+# Prepare the database and dump its schema cache before booting, as a deploy
+# would. With check_schema_cache_dump_version = false (set by the template), a
+# production boot defines attribute methods for the models whose tables are in
+# db/schema_cache.yml; without the dump, a model's first use in a request
+# Ractor would have to define them. Seeding runs in the same separate process:
+# using Post in this one would define its attribute methods on the main Ractor
+# and hide whether the boot did.
+puts "Preparing and seeding the database..."
+system(File.expand_path("../bin/rails", __dir__), "db:prepare", "db:schema:cache:dump", "db:seed", exception: true)
+
 require_relative "../config/environment"
 
 ActionController::Base.allow_forgery_protection = false
 
-unless ActiveRecord::Base.connection.data_source_exists?("posts")
-  puts "Loading database schema..."
-  ActiveRecord::Schema.verbose = false
-  load Rails.root.join("db/schema.rb")
+# The ids of the posts db/seeds.rb created, without going through Post.
+seed_post_id, delete_post_id = ActiveRecord::Base.with_connection do |connection|
+  [ "Seed post body from Ractor test", "Delete me from Ractor test" ].map do |body|
+    connection.select_value("SELECT id FROM posts WHERE body = #{connection.quote(body)}") ||
+      abort("db/seeds.rb didn't create the post #{body.inspect}")
+  end
 end
-
-puts "Resetting database..."
-Post.delete_all
-seed_post = Post.create!(body: "Seed post body from Ractor test")
-delete_post = Post.create!(body: "Delete me from Ractor test")
 puts "Database seeded."
 
-seed_post_id = seed_post.id
-delete_post_id = delete_post.id
 REQUESTS = YAML.safe_load(
   ERB.new(File.read(File.expand_path("requests.yml.erb", __dir__))).result(binding),
   permitted_classes: [Symbol],
@@ -73,9 +78,20 @@ def build_env(spec)
   }.merge(spec["headers"] || {}).compact
 end
 
+# Ractorize the application the way config.ru does before serving.
+def ractorize_application
+  Rails.application.ractorize!
+
+  begin
+    require "i18n/ractorize"
+  rescue LoadError
+    # Released i18n has no Ractor support; the template pins Shopify/i18n ractor_support.
+  end
+end
+
 def test_application_shareability
   label = "application is shareable"
-  Rails.application.ractorize!
+  ractorize_application
 
   if Ractor.shareable?(Rails.application)
     pass(label)
@@ -153,7 +169,7 @@ if phases.include?("request")
   puts
   puts "Phase 2: HTTP requests in Ractor"
   puts "-" * 50
-  Rails.application.ractorize! unless Rails.application.frozen?
+  ractorize_application unless Rails.application.frozen?
   REQUESTS.each { |spec| test_request(spec) }
 end
 
